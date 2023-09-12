@@ -2,6 +2,7 @@ import { ethers } from 'ethers';
 import { useEffect, useState } from 'react';
 import deploy from './deploy';
 import Escrow from './Escrow';
+import escrowJson from '../src/artifacts/contracts/Escrow.sol/Escrow.json';
 
 const provider = new ethers.providers.Web3Provider(window.ethereum);
 
@@ -9,6 +10,8 @@ export async function approve(escrowContract, signer) {
   const approveTxn = await escrowContract.connect(signer).approve();
   await approveTxn.wait();
 }
+
+const contractABI = escrowJson.abi;
 
 function App() {
   const [escrows, setEscrows] = useState([]);
@@ -24,7 +27,51 @@ function App() {
     }
 
     getAccounts();
+
+    function deserializeEscrow(escrowObj) {
+      const escrowContract = new ethers.Contract(escrowObj.address, contractABI, provider);
+      escrowObj.handleApprove = async () => {
+        escrowContract.on('Approved', () => {
+          document.getElementById(escrowContract.address).className =
+            'complete';
+          document.getElementById(escrowContract.address).innerText =
+            "✓ It's been approved!";
+        });
+  
+        await approve(escrowContract, signer);
+      };
+      return escrowObj;
+    }  
+
+    async function getContracts() {
+      let response = await fetch("http://localhost:3030/contracts");
+      response = await response.json();
+      const deEscrows = response.map(contract => deserializeEscrow(contract))
+      setEscrows(deEscrows);
+    }
+    getContracts();
   }, [account]);
+
+  async function saveEscrowContract(escrow) {
+    const escrowString = serializeEscrow(escrow);
+
+    await fetch("http://localhost:3030/contracts", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: escrowString
+    });
+  }
+
+  function serializeEscrow(escrow) {
+    return JSON.stringify({
+      address: escrow.address,
+      arbiter: escrow.arbiter,
+      beneficiary: escrow.beneficiary,
+      value: escrow.value,
+    });
+  }
 
   async function newContract() {
     const beneficiary = document.getElementById('beneficiary').value;
@@ -50,6 +97,7 @@ function App() {
       },
     };
 
+    saveEscrowContract(escrow)
     setEscrows([...escrows, escrow]);
   }
 
